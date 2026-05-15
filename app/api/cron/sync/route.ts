@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { seedDatabase } from "@/lib/seed";
 import { getDb } from "@/lib/db";
 import { fetchTeams, fetchMatches, COMPETITIONS } from "@/lib/football-api";
 
@@ -10,7 +11,6 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  // Allow unauthenticated GET only in development
   if (process.env.NODE_ENV !== "development") {
     if (req.headers.get("x-cron-secret") !== process.env.CRON_SECRET) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,6 +20,14 @@ export async function GET(req: NextRequest) {
 }
 
 async function runSync() {
+  // If no API key is set, fall back to built-in seed data so the app
+  // works without internet access or an account.
+  if (!process.env.FOOTBALL_API_KEY) {
+    const result = seedDatabase();
+    return NextResponse.json({ ...result, source: "seed" });
+  }
+
+  // Try the live API; fall back to seed if every competition fails.
   const db = getDb();
   const errors: string[] = [];
   let teamCount = 0;
@@ -51,24 +59,19 @@ async function runSync() {
         fetchMatches(comp.code),
       ]);
 
-      const txTeams = db.transaction(() => {
+      db.transaction(() => {
         for (const t of teams) {
           insertTeam.run({
-            id: t.id,
-            name: t.name,
-            short_name: t.shortName,
-            tla: t.tla,
-            crest: t.crest,
+            id: t.id, name: t.name, short_name: t.shortName,
+            tla: t.tla, crest: t.crest,
             country: t.area?.name ?? comp.country,
-            competition_id: null,
-            competition_name: comp.name,
+            competition_id: null, competition_name: comp.name,
           });
           teamCount++;
         }
-      });
-      txTeams();
+      })();
 
-      const txMatches = db.transaction(() => {
+      db.transaction(() => {
         for (const m of matches) {
           insertMatch.run({
             id: m.id,
@@ -90,15 +93,19 @@ async function runSync() {
           });
           matchCount++;
         }
-      });
-      txMatches();
+      })();
 
-      // Respect rate limit: 10 req/min on free tier (2 requests per competition)
       await new Promise((r) => setTimeout(r, 6500));
     } catch (e: unknown) {
       errors.push(`${comp.code}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  return NextResponse.json({ teamCount, matchCount, errors });
+  // If all competitions failed, fall back to seed data
+  if (errors.length === COMPETITIONS.length) {
+    const result = seedDatabase();
+    return NextResponse.json({ ...result, source: "seed", apiErrors: errors });
+  }
+
+  return NextResponse.json({ teamCount, matchCount, errors, source: "api" });
 }
