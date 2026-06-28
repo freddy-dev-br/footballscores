@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 interface WatchData {
   steps?: number;
@@ -12,38 +12,107 @@ interface WatchConnectProps {
   onData?: (data: WatchData) => void;
 }
 
+type BLEServer = {
+  getPrimaryService: (service: string) => Promise<BLEService>;
+  disconnect: () => void;
+};
+
+type BLEService = {
+  getCharacteristic: (char: string) => Promise<BLECharacteristic>;
+};
+
+type BLECharacteristic = {
+  startNotifications: () => Promise<BLECharacteristic>;
+  addEventListener: (event: string, handler: (e: Event) => void) => void;
+  removeEventListener: (event: string, handler: (e: Event) => void) => void;
+};
+
+type BLEDevice = {
+  name?: string;
+  gatt?: {
+    connect: () => Promise<BLEServer>;
+  };
+  addEventListener: (event: string, handler: () => void) => void;
+};
+
 export default function WatchConnect({ onData }: WatchConnectProps) {
   const [connected, setConnected] = useState(false);
   const [device, setDevice] = useState<string | null>(null);
+  const [heartRate, setHeartRate] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const serverRef = useRef<BLEServer | null>(null);
+  const hrHandlerRef = useRef<((e: Event) => void) | null>(null);
+  const hrCharRef = useRef<BLECharacteristic | null>(null);
 
   const supported = typeof navigator !== "undefined" && "bluetooth" in navigator;
 
+  function parseHeartRate(value: DataView): number {
+    const flags = value.getUint8(0);
+    // Bit 0: 0 = UINT8 format, 1 = UINT16 format
+    return flags & 0x01 ? value.getUint16(1, true) : value.getUint8(1);
+  }
+
   async function connect() {
     if (!supported) {
-      setError("Web Bluetooth is not supported in this browser. Try Chrome on Android.");
+      setError("Web Bluetooth is not supported in this browser. Try Chrome on Android or desktop.");
       return;
     }
     setConnecting(true);
     setError(null);
     try {
-      // Request a BLE device - fitness trackers commonly advertise heart rate and step counter services
-      const bleDevice = await (navigator as unknown as { bluetooth: { requestDevice: (opts: unknown) => Promise<{ name?: string; gatt?: { connect: () => Promise<unknown> } }> } }).bluetooth.requestDevice({
+      const nav = navigator as unknown as {
+        bluetooth: {
+          requestDevice: (opts: unknown) => Promise<BLEDevice>;
+        };
+      };
+
+      const bleDevice = await nav.bluetooth.requestDevice({
         filters: [
           { services: ["heart_rate"] },
           { services: ["fitness_machine"] },
         ],
-        optionalServices: ["battery_service", "device_information"],
+        optionalServices: ["heart_rate", "battery_service", "device_information"],
       });
 
-      setDevice(bleDevice.name || "Unknown Device");
+      const deviceName = bleDevice.name || "Unknown Device";
+      setDevice(deviceName);
 
-      if (bleDevice.gatt) {
-        await bleDevice.gatt.connect();
-        setConnected(true);
-        onData?.({ device: bleDevice.name || "Watch" });
+      if (!bleDevice.gatt) {
+        setError("Device does not support GATT");
+        return;
       }
+
+      const server = await bleDevice.gatt.connect();
+      serverRef.current = server;
+
+      // Read heart rate characteristic and subscribe to notifications
+      try {
+        const hrService = await server.getPrimaryService("heart_rate");
+        const hrChar = await hrService.getCharacteristic("heart_rate_measurement");
+        hrCharRef.current = hrChar;
+
+        const handler = (event: Event) => {
+          const e = event as Event & { target: { value: DataView } };
+          const bpm = parseHeartRate(e.target.value);
+          setHeartRate(bpm);
+          onData?.({ device: deviceName, heartRate: bpm });
+        };
+        hrHandlerRef.current = handler;
+        hrChar.addEventListener("characteristicvaluechanged", handler);
+        await hrChar.startNotifications();
+      } catch {
+        // Device may not support heart rate service — still mark as connected
+      }
+
+      setConnected(true);
+      onData?.({ device: deviceName });
+
+      // Handle unexpected disconnect
+      bleDevice.addEventListener("gattserverdisconnected", () => {
+        setConnected(false);
+        setHeartRate(null);
+      });
     } catch (err) {
       if ((err as Error).name !== "NotFoundError") {
         setError((err as Error).message || "Failed to connect");
@@ -54,8 +123,16 @@ export default function WatchConnect({ onData }: WatchConnectProps) {
   }
 
   function disconnect() {
+    if (hrCharRef.current && hrHandlerRef.current) {
+      hrCharRef.current.removeEventListener("characteristicvaluechanged", hrHandlerRef.current);
+    }
+    serverRef.current?.disconnect();
+    serverRef.current = null;
+    hrCharRef.current = null;
+    hrHandlerRef.current = null;
     setConnected(false);
     setDevice(null);
+    setHeartRate(null);
   }
 
   return (
@@ -91,6 +168,19 @@ export default function WatchConnect({ onData }: WatchConnectProps) {
           </button>
         )}
       </div>
+
+      {connected && heartRate !== null && (
+        <div className="mt-3 flex items-center gap-2 bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
+          <span className="text-red-400">❤</span>
+          <span className="text-sm text-white font-semibold">{heartRate} <span className="text-xs text-gray-400 font-normal">bpm</span></span>
+          <span className="text-xs text-gray-500 ml-auto">Live</span>
+        </div>
+      )}
+
+      {connected && heartRate === null && (
+        <p className="mt-2 text-xs text-gray-500">Waiting for heart rate data…</p>
+      )}
+
       {error && (
         <p className="mt-2 text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">{error}</p>
       )}
