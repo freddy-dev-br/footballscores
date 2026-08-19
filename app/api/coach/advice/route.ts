@@ -21,37 +21,42 @@ interface WorkoutRow {
 }
 
 export async function POST() {
-  const db = getDb();
-  const goal = db.prepare("SELECT * FROM goals WHERE id = 1").get() as GoalRow;
+  const db = await getDb();
+  const goalResult = await db.execute("SELECT * FROM goals WHERE id = 1");
+  const goal = goalResult.rows[0] as unknown as GoalRow;
 
   const today = new Date().toISOString().slice(0, 10);
-  const todayMeals = db
-    .prepare("SELECT description, calories, logged_at FROM meals WHERE date(logged_at) = date(?)")
-    .all(today) as MealRow[];
+  const todayMealsResult = await db.execute({
+    sql: "SELECT description, calories, logged_at FROM meals WHERE date(logged_at) = date(?)",
+    args: [today],
+  });
+  const todayMeals = todayMealsResult.rows as unknown as MealRow[];
   const todayCaloriesSoFar = todayMeals.reduce((sum, m) => sum + (m.calories ?? 0), 0);
 
-  const recentMeals = db
-    .prepare("SELECT description, calories, logged_at FROM meals ORDER BY logged_at DESC LIMIT 5")
-    .all() as MealRow[];
+  const recentMealsResult = await db.execute(
+    "SELECT description, calories, logged_at FROM meals ORDER BY logged_at DESC LIMIT 5"
+  );
+  const recentMeals = recentMealsResult.rows as unknown as MealRow[];
   const recentMealsSummary = recentMeals
     .map((m) => `${m.logged_at.slice(0, 10)}: ${m.description ?? "meal"} (${m.calories ?? "?"} kcal)`)
     .join("; ");
 
-  const recentWorkouts = db
-    .prepare("SELECT name, completed, scheduled_date FROM workouts ORDER BY scheduled_date DESC LIMIT 5")
-    .all() as WorkoutRow[];
+  const recentWorkoutsResult = await db.execute(
+    "SELECT name, completed, scheduled_date FROM workouts ORDER BY scheduled_date DESC LIMIT 5"
+  );
+  const recentWorkouts = recentWorkoutsResult.rows as unknown as WorkoutRow[];
   const recentWorkoutsSummary = recentWorkouts
     .map((w) => `${w.scheduled_date}: ${w.name} (${w.completed ? "completed" : "not done"})`)
     .join("; ");
 
-  const stepsRows = db.prepare("SELECT count FROM steps_log ORDER BY date DESC LIMIT 7").all() as { count: number }[];
+  const stepsResult = await db.execute("SELECT count FROM steps_log ORDER BY date DESC LIMIT 7");
+  const stepsRows = stepsResult.rows as unknown as { count: number }[];
   const recentStepsAvg = stepsRows.length
     ? Math.round(stepsRows.reduce((s, r) => s + r.count, 0) / stepsRows.length)
     : null;
 
-  const sleepRows = db
-    .prepare("SELECT duration_minutes FROM sleep_log ORDER BY date DESC LIMIT 7")
-    .all() as { duration_minutes: number }[];
+  const sleepResult = await db.execute("SELECT duration_minutes FROM sleep_log ORDER BY date DESC LIMIT 7");
+  const sleepRows = sleepResult.rows as unknown as { duration_minutes: number }[];
   const recentSleepAvgHours = sleepRows.length
     ? Math.round((sleepRows.reduce((s, r) => s + r.duration_minutes, 0) / sleepRows.length / 60) * 10) / 10
     : null;

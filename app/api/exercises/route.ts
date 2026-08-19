@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
-  const db = getDb();
+  const db = await getDb();
   const category = req.nextUrl.searchParams.get("category");
   const muscleGroup = req.nextUrl.searchParams.get("muscle_group");
 
@@ -18,6 +18,6 @@ export async function GET(req: NextRequest) {
   }
   query += " ORDER BY name ASC";
 
-  const rows = db.prepare(query).all(...args);
-  return NextResponse.json(rows);
+  const result = await db.execute({ sql: query, args });
+  return NextResponse.json(result.rows);
 }

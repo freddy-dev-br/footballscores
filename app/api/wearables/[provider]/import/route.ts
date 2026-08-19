@@ -15,15 +15,11 @@ export async function POST(
     return NextResponse.json({ error: "kind and content are required" }, { status: 400 });
   }
 
-  const db = getDb();
-  const upsertSteps = db.prepare(
-    `INSERT INTO steps_log (date, count, source, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET count = excluded.count, source = excluded.source, updated_at = excluded.updated_at`
-  );
-  const upsertSleep = db.prepare(
-    `INSERT INTO sleep_log (date, sleep_start, sleep_end, duration_minutes, source, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET sleep_start = excluded.sleep_start, sleep_end = excluded.sleep_end, duration_minutes = excluded.duration_minutes, source = excluded.source, updated_at = excluded.updated_at`
-  );
+  const db = await getDb();
+  const upsertStepsSql = `INSERT INTO steps_log (date, count, source, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET count = excluded.count, source = excluded.source, updated_at = excluded.updated_at`;
+  const upsertSleepSql = `INSERT INTO sleep_log (date, sleep_start, sleep_end, duration_minutes, source, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET sleep_start = excluded.sleep_start, sleep_end = excluded.sleep_end, duration_minutes = excluded.duration_minutes, source = excluded.source, updated_at = excluded.updated_at`;
 
   let stepsImported = 0;
   let sleepImported = 0;
@@ -33,23 +29,26 @@ export async function POST(
     if (kind === "csv_steps") {
       const rows = parseCsvSteps(content);
       for (const r of rows) {
-        upsertSteps.run(r.date, r.count, providerId, now);
+        await db.execute({ sql: upsertStepsSql, args: [r.date, r.count, providerId, now] });
         stepsImported++;
       }
     } else if (kind === "csv_sleep") {
       const rows = parseCsvSleep(content);
       for (const r of rows) {
-        upsertSleep.run(r.date, r.start, r.end, r.durationMinutes, providerId, now);
+        await db.execute({ sql: upsertSleepSql, args: [r.date, r.start, r.end, r.durationMinutes, providerId, now] });
         sleepImported++;
       }
     } else if (kind === "apple_health_xml") {
       const parsed = parseAppleHealthExport(content);
       for (const r of parsed.steps) {
-        upsertSteps.run(r.date, r.count, "apple_health", now);
+        await db.execute({ sql: upsertStepsSql, args: [r.date, r.count, "apple_health", now] });
         stepsImported++;
       }
       for (const r of parsed.sleep) {
-        upsertSleep.run(r.date, r.start, r.end, r.durationMinutes, "apple_health", now);
+        await db.execute({
+          sql: upsertSleepSql,
+          args: [r.date, r.start, r.end, r.durationMinutes, "apple_health", now],
+        });
         sleepImported++;
       }
     } else {
@@ -60,9 +59,10 @@ export async function POST(
     return NextResponse.json({ error: "Could not parse the uploaded file." }, { status: 400 });
   }
 
-  db.prepare(
-    `UPDATE wearable_connections SET last_sync_at = ?, status = CASE WHEN status = 'disconnected' THEN 'manual_import' ELSE status END WHERE provider = ?`
-  ).run(now, providerId);
+  await db.execute({
+    sql: `UPDATE wearable_connections SET last_sync_at = ?, status = CASE WHEN status = 'disconnected' THEN 'manual_import' ELSE status END WHERE provider = ?`,
+    args: [now, providerId],
+  });
 
   return NextResponse.json({ stepsImported, sleepImported });
 }

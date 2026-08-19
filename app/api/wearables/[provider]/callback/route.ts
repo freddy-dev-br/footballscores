@@ -24,10 +24,11 @@ export async function GET(
     const redirectUri = `${req.nextUrl.origin}/api/wearables/${providerId}/callback`;
     const token = await provider.exchangeCode(code, redirectUri);
 
-    const db = getDb();
-    db.prepare(
-      `UPDATE wearable_connections SET status = 'connected', access_token = ?, refresh_token = ?, expires_at = ?, connected_at = ? WHERE provider = ?`
-    ).run(token.accessToken, token.refreshToken ?? null, token.expiresAt ?? null, new Date().toISOString(), providerId);
+    const db = await getDb();
+    await db.execute({
+      sql: `UPDATE wearable_connections SET status = 'connected', access_token = ?, refresh_token = ?, expires_at = ?, connected_at = ? WHERE provider = ?`,
+      args: [token.accessToken, token.refreshToken ?? null, token.expiresAt ?? null, new Date().toISOString(), providerId],
+    });
 
     const res = NextResponse.redirect(new URL(`/settings?connected=${providerId}`, req.url));
     res.cookies.delete(`wearable_oauth_state_${providerId}`);

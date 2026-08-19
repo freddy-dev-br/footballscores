@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
-  const db = getDb();
+  const db = await getDb();
   const days = Number(req.nextUrl.searchParams.get("days") ?? 14);
-  const rows = db
-    .prepare(`SELECT * FROM sleep_log ORDER BY date DESC LIMIT ?`)
-    .all(days);
-  return NextResponse.json(rows);
+  const result = await db.execute({
+    sql: `SELECT * FROM sleep_log ORDER BY date DESC LIMIT ?`,
+    args: [days],
+  });
+  return NextResponse.json(result.rows);
 }
 
 export async function POST(req: NextRequest) {
@@ -23,21 +24,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "duration_minutes, or sleep_start+sleep_end, is required" }, { status: 400 });
   }
 
-  const db = getDb();
-  db.prepare(
-    `INSERT INTO sleep_log (date, sleep_start, sleep_end, duration_minutes, quality, source, updated_at)
+  const db = await getDb();
+  await db.execute({
+    sql: `INSERT INTO sleep_log (date, sleep_start, sleep_end, duration_minutes, quality, source, updated_at)
      VALUES (@date, @sleep_start, @sleep_end, @duration_minutes, @quality, @source, @updated_at)
-     ON CONFLICT(date) DO UPDATE SET sleep_start = @sleep_start, sleep_end = @sleep_end, duration_minutes = @duration_minutes, quality = @quality, source = @source, updated_at = @updated_at`
-  ).run({
-    date,
-    sleep_start: sleep_start ?? null,
-    sleep_end: sleep_end ?? null,
-    duration_minutes: durationMinutes,
-    quality: quality ?? null,
-    source: source ?? "manual",
-    updated_at: new Date().toISOString(),
+     ON CONFLICT(date) DO UPDATE SET sleep_start = @sleep_start, sleep_end = @sleep_end, duration_minutes = @duration_minutes, quality = @quality, source = @source, updated_at = @updated_at`,
+    args: {
+      date,
+      sleep_start: sleep_start ?? null,
+      sleep_end: sleep_end ?? null,
+      duration_minutes: durationMinutes,
+      quality: quality ?? null,
+      source: source ?? "manual",
+      updated_at: new Date().toISOString(),
+    },
   });
 
-  const row = db.prepare("SELECT * FROM sleep_log WHERE date = ?").get(date);
-  return NextResponse.json(row);
+  const result = await db.execute({ sql: "SELECT * FROM sleep_log WHERE date = ?", args: [date] });
+  return NextResponse.json(result.rows[0]);
 }
