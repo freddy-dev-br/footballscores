@@ -32,4 +32,16 @@ Set `OPENAI_API_KEY` in `.env.local`. Without it, food-photo analysis and the AI
 
 ## Data
 
-Everything is stored locally in a SQLite database (`fitness.db`, gitignored) via `better-sqlite3` — this is a single-user, local-first app.
+Data lives in SQLite via [`@libsql/client`](https://github.com/tursodatabase/libsql-client-ts) — this is a single-user app. In local dev it defaults to a local file (`fitness.db`, gitignored), no setup required.
+
+## Deploying to Vercel
+
+Vercel's serverless functions have no persistent local disk, so a local SQLite file won't survive between requests there. Use [Turso](https://turso.tech) (hosted SQLite, same `@libsql/client` driver, free tier) instead:
+
+1. `turso db create fittrack` (after `turso auth login` — see [Turso's CLI docs](https://docs.turso.tech/cli/installation))
+2. `turso db show fittrack --url` → set as `TURSO_DATABASE_URL`
+3. `turso db tokens create fittrack` → set as `TURSO_AUTH_TOKEN`
+4. Add both as environment variables in your Vercel project settings, along with `OPENAI_API_KEY`
+5. Deploy — `vercel.json` is already set up for the Next.js framework preset
+
+The schema and exercise-library seed data are created automatically on first request against a fresh database.

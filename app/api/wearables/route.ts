@@ -3,8 +3,9 @@ import { getDb } from "@/lib/db";
 import { WEARABLE_PROVIDERS } from "@/lib/wearables";
 
 export async function GET() {
-  const db = getDb();
-  const connections = db.prepare("SELECT * FROM wearable_connections").all() as {
+  const db = await getDb();
+  const result = await db.execute("SELECT * FROM wearable_connections");
+  const connections = result.rows as unknown as {
     provider: string;
     status: string;
     connected_at: string | null;
