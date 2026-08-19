@@ -6,8 +6,8 @@ import Nav from "@/components/Nav";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "FootballScores",
-  description: "Live scores, fixtures and results for your favourite clubs",
+  title: "FitTrack",
+  description: "AI-powered workout, nutrition, sleep and step tracking",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${geist.className} bg-gray-50 min-h-screen`}>
         <Nav />
-        <main className="max-w-3xl mx-auto px-4 py-6">{children}</main>
+        <main className="max-w-3xl mx-auto px-4 py-6 pb-20">{children}</main>
       </body>
     </html>
   );
