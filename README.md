@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FitTrack
 
-## Getting Started
+An AI-powered workout, nutrition, sleep and step tracker built with Next.js.
 
-First, run the development server:
+## Features
+
+- **Nutrition**: photograph a meal and get an AI calorie/macro estimate (OpenAI vision). If the photo is ambiguous, it asks a clarifying question and refines the estimate.
+- **Workouts**: a starter exercise library with proper-form video links, a workout builder, and per-exercise set/rep logging.
+- **Activity**: steps and sleep tracking via manual entry, CSV import, or an Apple Health `export.xml` import.
+- **Wearables**: a pluggable connector framework with working OAuth flows for Fitbit and Google Fit (once you supply your own developer credentials), file-based import for Apple Health, and Garmin listed as unavailable (it has no self-serve API).
+- **AI coach**: a dashboard card that generates short, personalized nutrition/training advice from your goals and recent logs.
+
+## Getting started
 
 ```bash
+npm install
+cp .env.local.example .env.local   # then fill in the keys you want to use
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Enabling AI features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Set `OPENAI_API_KEY` in `.env.local`. Without it, food-photo analysis and the AI coach return a clear "not configured" message instead of failing silently.
 
-## Learn More
+### Connecting wearables
 
-To learn more about Next.js, take a look at the following resources:
+- **Fitbit / Google Fit**: register a developer app with the provider, set the client id/secret env vars (see `.env.local.example` for the exact redirect URIs to register), then use the Connect button in Settings.
+- **Apple Health**: no OAuth needed — export your data from the Health app (Profile → Export All Health Data) and upload `export.xml` in Settings.
+- **Garmin**: Garmin's Health API requires a negotiated partner agreement rather than self-serve signup, so it isn't wired up; use manual entry or CSV import in the meantime.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Data
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Everything is stored locally in a SQLite database (`fitness.db`, gitignored) via `better-sqlite3` — this is a single-user, local-first app.

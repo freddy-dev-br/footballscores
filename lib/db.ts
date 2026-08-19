@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import path from "path";
+import { EXERCISE_LIBRARY } from "./exercise-library";
 
-const DB_PATH = path.join(process.cwd(), "football.db");
+const DB_PATH = path.join(process.cwd(), "fitness.db");
 
 let db: Database.Database;
 
@@ -17,108 +18,134 @@ export function getDb(): Database.Database {
 
 function initSchema(db: Database.Database) {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS teams (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      short_name TEXT,
-      tla TEXT,
-      crest TEXT,
-      country TEXT,
-      competition_id INTEGER,
-      competition_name TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS matches (
-      id INTEGER PRIMARY KEY,
-      competition_id INTEGER,
-      competition_name TEXT,
-      home_team_id INTEGER,
-      home_team_name TEXT,
-      home_team_crest TEXT,
-      away_team_id INTEGER,
-      away_team_name TEXT,
-      away_team_crest TEXT,
-      match_date TEXT,
-      status TEXT,
-      home_score INTEGER,
-      away_score INTEGER,
-      matchday INTEGER,
-      season TEXT,
-      last_synced TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_matches_home ON matches(home_team_id);
-    CREATE INDEX IF NOT EXISTS idx_matches_away ON matches(away_team_id);
-    CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
-    CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date);
-    CREATE INDEX IF NOT EXISTS idx_teams_name ON teams(name);
-    CREATE INDEX IF NOT EXISTS idx_teams_country ON teams(country);
-
-    CREATE TABLE IF NOT EXISTS fitness_profile (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL DEFAULT 'User',
-      age INTEGER,
-      weight_kg REAL,
-      height_cm REAL,
-      goal TEXT DEFAULT 'maintenance',
-      daily_calorie_target INTEGER DEFAULT 2000,
-      daily_step_target INTEGER DEFAULT 10000,
-      sleep_target_hours REAL DEFAULT 8.0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS workouts (
-      id INTEGER PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'cardio',
-      name TEXT NOT NULL,
-      duration_minutes INTEGER,
-      calories_burned INTEGER,
-      distance_km REAL,
+    CREATE TABLE IF NOT EXISTS goals (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      goal_type TEXT NOT NULL DEFAULT 'maintenance',
+      target_calories INTEGER,
+      target_protein_g INTEGER,
+      target_carbs_g INTEGER,
+      target_fat_g INTEGER,
+      target_steps INTEGER DEFAULT 8000,
+      target_sleep_hours REAL DEFAULT 8,
+      target_workouts_per_week INTEGER DEFAULT 3,
       notes TEXT,
-      logged_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS meals (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      logged_at TEXT NOT NULL,
+      meal_type TEXT,
+      photo_data TEXT,
       description TEXT,
       calories INTEGER,
       protein_g REAL,
       carbs_g REAL,
       fat_g REAL,
-      ai_analysis TEXT,
-      photo_data TEXT,
-      meal_type TEXT DEFAULT 'snack',
-      logged_at TEXT DEFAULT CURRENT_TIMESTAMP
+      confidence REAL,
+      needs_more_info INTEGER DEFAULT 0,
+      clarifying_question TEXT,
+      ai_notes TEXT,
+      raw_analysis TEXT,
+      created_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS daily_steps (
+    CREATE INDEX IF NOT EXISTS idx_meals_logged_at ON meals(logged_at);
+
+    CREATE TABLE IF NOT EXISTS exercises (
       id INTEGER PRIMARY KEY,
-      date TEXT UNIQUE NOT NULL,
-      steps INTEGER DEFAULT 0,
-      distance_km REAL DEFAULT 0,
-      calories_burned INTEGER DEFAULT 0,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      muscle_group TEXT NOT NULL,
+      equipment TEXT,
+      difficulty TEXT,
+      instructions TEXT,
+      video_search_query TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS sleep_sessions (
-      id INTEGER PRIMARY KEY,
-      date TEXT NOT NULL,
-      start_time TEXT NOT NULL,
-      end_time TEXT,
-      duration_minutes INTEGER,
-      quality TEXT DEFAULT 'good',
-      deep_sleep_minutes INTEGER DEFAULT 0,
-      rem_sleep_minutes INTEGER DEFAULT 0,
-      light_sleep_minutes INTEGER DEFAULT 0,
+    CREATE TABLE IF NOT EXISTS workouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scheduled_date TEXT NOT NULL,
+      name TEXT NOT NULL,
+      goal_focus TEXT,
       notes TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      completed INTEGER DEFAULT 0,
+      completed_at TEXT,
+      created_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_workouts_date ON workouts(logged_at);
-    CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(logged_at);
-    CREATE INDEX IF NOT EXISTS idx_steps_date ON daily_steps(date);
-    CREATE INDEX IF NOT EXISTS idx_sleep_date ON sleep_sessions(date);
+    CREATE TABLE IF NOT EXISTS workout_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workout_id INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+      exercise_id INTEGER NOT NULL REFERENCES exercises(id),
+      order_index INTEGER DEFAULT 0,
+      sets INTEGER,
+      reps INTEGER,
+      weight_kg REAL,
+      duration_seconds INTEGER,
+      completed INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout ON workout_exercises(workout_id);
+
+    CREATE TABLE IF NOT EXISTS steps_log (
+      date TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sleep_log (
+      date TEXT PRIMARY KEY,
+      sleep_start TEXT,
+      sleep_end TEXT,
+      duration_minutes INTEGER NOT NULL,
+      quality TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS body_weight (
+      date TEXT PRIMARY KEY,
+      weight_kg REAL NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS wearable_connections (
+      provider TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'disconnected',
+      access_token TEXT,
+      refresh_token TEXT,
+      expires_at TEXT,
+      connected_at TEXT,
+      last_sync_at TEXT,
+      meta TEXT
+    );
   `);
+
+  const goalCount = db.prepare("SELECT COUNT(*) as c FROM goals").get() as { c: number };
+  if (goalCount.c === 0) {
+    db.prepare(
+      `INSERT INTO goals (id, goal_type, target_calories, target_protein_g, target_carbs_g, target_fat_g, target_steps, target_sleep_hours, target_workouts_per_week, updated_at)
+       VALUES (1, 'maintenance', 2200, 140, 220, 70, 8000, 8, 3, ?)`
+    ).run(new Date().toISOString());
+  }
+
+  const exerciseCount = db.prepare("SELECT COUNT(*) as c FROM exercises").get() as { c: number };
+  if (exerciseCount.c === 0) {
+    const insert = db.prepare(
+      `INSERT INTO exercises (id, name, category, muscle_group, equipment, difficulty, instructions, video_search_query)
+       VALUES (@id, @name, @category, @muscle_group, @equipment, @difficulty, @instructions, @video_search_query)`
+    );
+    const insertMany = db.transaction((rows: typeof EXERCISE_LIBRARY) => {
+      for (const row of rows) insert.run(row);
+    });
+    insertMany(EXERCISE_LIBRARY);
+  }
+
+  const wearableProviders = ["fitbit", "google_fit", "apple_health", "garmin"];
+  const insertProvider = db.prepare(
+    `INSERT OR IGNORE INTO wearable_connections (provider, status) VALUES (?, 'disconnected')`
+  );
+  for (const p of wearableProviders) insertProvider.run(p);
 }
